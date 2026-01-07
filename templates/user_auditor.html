@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jira User Access Auditor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .results-section {
+            display: none;
+        }
+        .user-card {
+            border-left: 4px solid #dc3545;
+            margin-bottom: 10px;
+        }
+        .project-badge {
+            margin: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <header class="bg-danger text-white py-3 px-4 mb-4">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-shield-alt fa-3x me-3"></i>
+                <div>
+                    <h1>Jira User Access Auditor</h1>
+                    <p class="mb-0">Identify external users across all Jira projects</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Input Form -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3><i class="fas fa-cog"></i> Configuration</h3>
+            </div>
+            <div class="card-body">
+                <form id="auditForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="jira_url" class="form-label">Jira Server URL</label>
+                                <input type="url" class="form-control" id="jira_url" name="jira_url" 
+                                       placeholder="https://your-company.atlassian.net" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="access_token" class="form-label">Access Token</label>
+                                <input type="password" class="form-control" id="access_token" name="access_token" 
+                                       placeholder="Your API token" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                <label for="excluded_domains" class="form-label">Company Email Domains (comma-separated)</label>
+                                <input type="text" class="form-control" id="excluded_domains" name="excluded_domains" 
+                                       value="mycompany.com" placeholder="mycompany.com, company.com">
+                                <div class="form-text">Users with these email domains will be excluded from the report</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="project_key" class="form-label">Single Project Test (Optional)</label>
+                                <input type="text" class="form-control" id="project_key" name="project_key" 
+                                       placeholder="PROJ" style="text-transform: uppercase;">
+                                <div class="form-text">Leave empty to scan all projects</div>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-danger btn-lg me-2">
+                        <i class="fas fa-search"></i> Start Full Audit
+                    </button>
+                    <button type="button" id="singleProjectBtn" class="btn btn-warning btn-lg">
+                        <i class="fas fa-vial"></i> Test Single Project
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading" class="loading">
+            <div class="spinner-border text-danger" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Scanning all Jira projects for external users...</p>
+            <p class="text-muted">This may take several minutes depending on the number of projects</p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results" class="results-section">
+            <!-- Summary -->
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-dark">
+                    <h3><i class="fas fa-exclamation-triangle"></i> Audit Summary</h3>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="card text-center bg-info text-white">
+                                <div class="card-body">
+                                    <h4 id="totalProjects">0</h4>
+                                    <p>Projects Scanned</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-center bg-danger text-white">
+                                <div class="card-body">
+                                    <h4 id="externalUsers">0</h4>
+                                    <p>External Users</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-center bg-warning text-dark">
+                                <div class="card-body">
+                                    <h4 id="affectedProjects">0</h4>
+                                    <p>Affected Projects</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-center bg-secondary text-white">
+                                <div class="card-body">
+                                    <h4 id="uniqueDomains">0</h4>
+                                    <p>External Domains</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- External Users List -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h4><i class="fas fa-users"></i> External Users by Domain</h4>
+                    <button id="exportBtn" class="btn btn-success btn-sm float-end">
+                        <i class="fas fa-download"></i> Export CSV
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="usersList"></div>
+                </div>
+            </div>
+
+            <!-- Projects with External Access -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h4><i class="fas fa-project-diagram"></i> Projects with External Access</h4>
+                </div>
+                <div class="card-body">
+                    <div id="projectsList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div id="messages"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let auditResults = null;
+
+        document.getElementById('auditForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('messages').innerHTML = '';
+            
+            fetch('/audit', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.success) {
+                    auditResults = data.results;
+                    displayResults(data.results);
+                    showMessage('Audit completed successfully!', 'success');
+                } else {
+                    showMessage(`Error: ${data.error}`, 'error');
+                }
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                showMessage(`Network error: ${error.message}`, 'error');
+            });
+        });
+
+        function displayResults(results) {
+            // Update summary
+            document.getElementById('totalProjects').textContent = results.total_projects;
+            document.getElementById('externalUsers').textContent = Object.keys(results.external_users).length;
+            
+            const affectedProjects = Object.values(results.project_external_users)
+                .filter(p => p.external_users.length > 0).length;
+            document.getElementById('affectedProjects').textContent = affectedProjects;
+            
+            const domains = new Set();
+            Object.values(results.external_users).forEach(user => {
+                if (user.domain) domains.add(user.domain);
+            });
+            document.getElementById('uniqueDomains').textContent = domains.size;
+
+            // Display users by domain
+            displayUsersByDomain(results);
+            
+            // Display projects with external access
+            displayProjectsWithExternalAccess(results);
+            
+            document.getElementById('results').style.display = 'block';
+        }
+
+        function displayUsersByDomain(results) {
+            const usersList = document.getElementById('usersList');
+            const usersByDomain = {};
+            
+            // Group users by domain
+            Object.values(results.external_users).forEach(user => {
+                const domain = user.domain || 'unknown';
+                if (!usersByDomain[domain]) {
+                    usersByDomain[domain] = [];
+                }
+                usersByDomain[domain].push(user);
+            });
+            
+            let html = '';
+            Object.keys(usersByDomain).sort().forEach(domain => {
+                const users = usersByDomain[domain];
+                html += `
+                    <div class="mb-4">
+                        <h5 class="text-danger"><i class="fas fa-at"></i> ${domain} (${users.length} users)</h5>
+                        <div class="row">
+                `;
+                
+                users.forEach(user => {
+                    const projects = results.user_project_access[user.key] || [];
+                    const projectBadges = projects.map(p => 
+                        `<span class="badge bg-secondary project-badge" title="${p.project_name} (${p.role})">${p.project_key}</span>`
+                    ).join('');
+                    
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card user-card">
+                                <div class="card-body">
+                                    <h6 class="card-title">
+                                        ${user.displayName}
+                                        ${user.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}
+                                    </h6>
+                                    <p class="card-text">
+                                        <small class="text-muted">${user.emailAddress}</small><br>
+                                        <strong>Projects (${projects.length}):</strong><br>
+                                        ${projectBadges || '<em>No projects</em>'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div></div>';
+            });
+            
+            usersList.innerHTML = html;
+        }
+
+        function displayProjectsWithExternalAccess(results) {
+            const projectsList = document.getElementById('projectsList');
+            const projectsWithExternal = Object.entries(results.project_external_users)
+                .filter(([key, project]) => project.external_users.length > 0)
+                .sort((a, b) => b[1].external_users.length - a[1].external_users.length);
+            
+            let html = '';
+            projectsWithExternal.forEach(([projectKey, project]) => {
+                const externalUsers = project.external_users.map(userKey => {
+                    const user = results.external_users[userKey];
+                    return user ? `${user.displayName} (${user.emailAddress})` : userKey;
+                });
+                
+                html += `
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6><strong>${projectKey}</strong> - ${project.project_name}</h6>
+                            <span class="badge bg-danger">${project.external_users.length} external users</span>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-unstyled mb-0">
+                                ${externalUsers.map(user => `<li><i class="fas fa-user"></i> ${user}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            projectsList.innerHTML = html;
+        }
+
+        function showMessage(message, type) {
+            const messagesDiv = document.getElementById('messages');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+            messagesDiv.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    messagesDiv.innerHTML = '';
+                }, 5000);
+            }
+        }
+
+        // Single project test button handler
+        document.getElementById('singleProjectBtn').addEventListener('click', function() {
+            const projectKey = document.getElementById('project_key').value.trim();
+            if (!projectKey) {
+                showMessage('Please enter a project key for single project test', 'error');
+                return;
+            }
+            
+            const formData = new FormData(document.getElementById('auditForm'));
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('messages').innerHTML = '';
+            
+            fetch('/audit_single', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.success) {
+                    auditResults = data.results;
+                    displaySingleProjectResults(data.results);
+                    showMessage(`Single project audit completed for ${data.results.project_key}!`, 'success');
+                } else {
+                    showMessage(`Error: ${data.error}`, 'error');
+                }
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                showMessage(`Network error: ${error.message}`, 'error');
+            });
+        });
+
+        function displaySingleProjectResults(results) {
+            // Update summary for single project
+            document.getElementById('totalProjects').textContent = '1';
+            document.getElementById('externalUsers').textContent = Object.keys(results.external_users).length;
+            document.getElementById('affectedProjects').textContent = Object.keys(results.external_users).length > 0 ? '1' : '0';
+            
+            const domains = new Set();
+            Object.values(results.external_users).forEach(user => {
+                if (user.domain) domains.add(user.domain);
+            });
+            document.getElementById('uniqueDomains').textContent = domains.size;
+
+            // Display users by domain for single project
+            displaySingleProjectUsers(results);
+            
+            // Display project summary
+            displaySingleProjectSummary(results);
+            
+            document.getElementById('results').style.display = 'block';
+        }
+
+        function displaySingleProjectUsers(results) {
+            const usersList = document.getElementById('usersList');
+            const usersByDomain = {};
+            
+            // Group external users by domain
+            Object.values(results.external_users).forEach(user => {
+                const domain = user.domain || 'unknown';
+                if (!usersByDomain[domain]) {
+                    usersByDomain[domain] = [];
+                }
+                usersByDomain[domain].push(user);
+            });
+            
+            let html = `<h5 class="text-info mb-3">Project: ${results.project_key}</h5>`;
+            
+            if (Object.keys(usersByDomain).length === 0) {
+                html += '<div class="alert alert-success"><i class="fas fa-check-circle"></i> No external users found in this project!</div>';
+            } else {
+                Object.keys(usersByDomain).sort().forEach(domain => {
+                    const users = usersByDomain[domain];
+                    html += `
+                        <div class="mb-4">
+                            <h6 class="text-danger"><i class="fas fa-at"></i> ${domain} (${users.length} users)</h6>
+                            <div class="row">
+                    `;
+                    
+                    users.forEach(user => {
+                        html += `
+                            <div class="col-md-6 mb-3">
+                                <div class="card user-card">
+                                    <div class="card-body">
+                                        <h6 class="card-title">
+                                            ${user.displayName}
+                                            ${user.active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}
+                                        </h6>
+                                        <p class="card-text">
+                                            <small class="text-muted">${user.emailAddress}</small><br>
+                                            <strong>Role:</strong> <span class="badge bg-secondary">${user.role}</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div></div>';
+                });
+            }
+            
+            usersList.innerHTML = html;
+        }
+
+        function displaySingleProjectSummary(results) {
+            const projectsList = document.getElementById('projectsList');
+            const externalCount = Object.keys(results.external_users).length;
+            const companyCount = Object.keys(results.company_users).length;
+            
+            let html = `
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6><strong>${results.project_key}</strong> - Single Project Analysis</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="text-center">
+                                    <h4 class="text-info">${results.total_users}</h4>
+                                    <p>Total Users</p>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="text-center">
+                                    <h4 class="text-danger">${externalCount}</h4>
+                                    <p>External Users</p>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="text-center">
+                                    <h4 class="text-success">${companyCount}</h4>
+                                    <p>Company Users</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            projectsList.innerHTML = html;
+        }
+        document.getElementById('exportBtn').addEventListener('click', function() {
+            if (!auditResults) {
+                showMessage('No audit results to export', 'error');
+                return;
+            }
+            
+            fetch('/export_csv', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({results: auditResults})
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.blob();
+                }
+                throw new Error('Export failed');
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `jira_external_users_${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                showMessage('CSV exported successfully!', 'success');
+            })
+            .catch(error => {
+                showMessage(`Export error: ${error.message}`, 'error');
+            });
+        });
+    </script>
+</body>
+</html>
