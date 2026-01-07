@@ -19,15 +19,15 @@ A Flask-based web application that scans all Jira projects to identify users wit
 3. **Enter your Jira details:**
    - Jira Server URL (e.g., https://your-company.atlassian.net)
    - API Token (generate from Jira profile settings)
-   - Company email domains to exclude (default: worldline.com)
+   - Company email domains to exclude (default: mycompany.com)
 4. **Click "Start User Audit"**
 
 ## Configuration
 
 ### Company Email Domains
-By default, the application excludes users with `@worldline.com` emails. You can specify multiple domains separated by commas:
+By default, the application excludes users with `@mycompany.com` emails. You can specify multiple domains separated by commas:
 ```
-worldline.com, company.com, subsidiary.com
+mycompany.com, company.com, subsidiary.com
 ```
 
 ### API Token Setup
